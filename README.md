@@ -231,10 +231,13 @@ container-isolation-benchmarks/
 
 | Platform | Benchmark 01 | Benchmark 02 | Benchmark 03 | Notes |
 |----------|--------------|--------------|--------------|-------|
-| **Linux (Ubuntu/RHEL/Azure)** | ✅ | ✅ | ✅ | Full support, recommended |
+| **Linux (Ubuntu/RHEL/Azure)** | ✅ Tested | ✅ Tested | ✅ Tested | Docker on Azure VM |
 | **macOS (Docker Desktop)** | ⚠️ Partial | ❌ | ❌ | Syscall test only, no cgroup v2 |
 | **Windows (WSL2)** | ❓ Untested | ❓ Untested | ❓ Untested | Not validated, use at own risk |
-| **Kubernetes/AKS** | ✅ | ✅ | ✅ | Benchmark 03 includes pod test |
+| **Kubernetes/AKS** | ✅ Compatible* | ✅ Compatible* | ⚠️ Partial* | *See note below |
+
+> **\* Kubernetes/AKS Compatibility Note:**  
+> Kubernetes uses the same Linux kernel primitives (namespaces, cgroups, veth pairs) as Docker. Benchmarks 01 and 02 results apply directly to K8s pods since the underlying kernel mechanisms are identical. Benchmark 03 Test C (shared pod networking) is expected to match loopback performance based on architecture but has not been empirically validated on AKS.
 
 ---
 
