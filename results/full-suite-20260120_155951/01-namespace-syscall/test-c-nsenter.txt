@@ -1,0 +1,1 @@
+Average: 1872 microseconds per nsenter

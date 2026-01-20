@@ -1,0 +1,28 @@
+# Individual benchmark results (users generate these)
+benchmarks/*/results/*
+!benchmarks/*/results/.gitkeep
+
+# Compiled binaries
+benchmarks/01-namespace-syscall/getpid_bench
+*.o
+*.out
+
+# Temporary files
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Logs
+*.log
+
+# Archives
+*.tar.gz
+*.zip
+
+# Editor files
+.vscode/
+.idea/
+*.iml
+
+# NOTE: Root results/ directory is kept as example output

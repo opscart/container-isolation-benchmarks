@@ -1,0 +1,37 @@
+=========================================
+Benchmark 01: Namespace Syscall Overhead
+=========================================
+
+Results will be saved to: results/20260120_155952
+
+=== Test A: Host PID Namespace (Baseline) ===
+Running without perf (timing only)...
+=== getpid() Syscall Benchmark ===
+Iterations: 10000000
+Total time: 1.17 seconds
+Average: 116.54 nanoseconds per syscall
+Rate: 8.58 million syscalls/second
+
+=== Test B: Container PID Namespace ===
+Running inside Docker container...
+=== getpid() Syscall Benchmark ===
+Iterations: 10000000
+Total time: 1.47 seconds
+Average: 147.17 nanoseconds per syscall
+Rate: 6.79 million syscalls/second
+
+=== Test C: Cross-Namespace (nsenter) ===
+Running 1000 nsenter operations...
+Average: 1872 microseconds per nsenter
+
+=== Results Summary ===
+
+Test A (Host):      116.54 ns
+Test B (Container): 147.17 ns
+Test C (nsenter):   1872 microseconds
+
+Container overhead: +20.0%
+
+Full results: results/20260120_155952/
+
+Next: Review results and compare with expected_results.md

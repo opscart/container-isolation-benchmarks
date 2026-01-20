@@ -1,0 +1,96 @@
+=========================================
+Benchmark 02: CPU Throttling Overhead
+=========================================
+
+Results will be saved to: results/20260120_155957
+
+Cleaning up any leftover containers...
+
+Test duration: 60 seconds per test
+
+=== Test A: No CPU Limit (Baseline) ===
+Creating container with unlimited CPU...
+Running workload for 60 seconds...
+Found cgroup at: /sys/fs/cgroup/system.slice/docker-fc056b5b4fe005d96989c13b15d5bf85f564e620b32d4904db2f4ea631e7df30.scope
+
+=== CPU Statistics (cgroup v2) ===
+usage_usec 60065534
+user_usec 60056535
+system_usec 8999
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 0
+nr_throttled 0
+throttled_usec 0
+nr_bursts 0
+burst_usec 0
+
+Baseline: No throttling expected (unlimited CPU)
+
+=== Test B: Moderate CPU Limit (50% of 1 core) ===
+Creating container with --cpus=0.5...
+Running workload for 60 seconds...
+=== CPU Statistics ===
+usage_usec 30070924
+user_usec 30051101
+system_usec 19823
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 601
+nr_throttled 600
+throttled_usec 29989858
+nr_bursts 0
+burst_usec 0
+
+Analysis:
+  Total periods: 601
+  Throttled periods: 600
+  Throttle rate: 90.0%
+  Time in throttled state: 29.98s out of 60s
+  Percentage of time throttled: 40.0%
+
+=== Test C: Aggressive CPU Limit (10% of 1 core) ===
+Creating container with --cpus=0.1...
+Running workload for 60 seconds...
+=== CPU Statistics ===
+usage_usec 6040078
+user_usec 6030666
+system_usec 9412
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 603
+nr_throttled 603
+throttled_usec 54117668
+nr_bursts 0
+burst_usec 0
+
+Analysis:
+  Total periods: 603
+  Throttled periods: 603
+  Throttle rate: 100.0%
+  Time in throttled state: 54.11s out of 60s
+  Percentage of time throttled: 90.0%
+
+  Estimated scheduler overhead: ~6.49s
+  (At >80% throttle rate, ~10-15% overhead from scheduler)
+
+
+=== Summary ===
+
+Full results saved to: results/20260120_155957/
+
+Key Findings:
+  - Test A (No limit): No throttling (baseline)
+  - Test B (50% limit): Moderate throttling
+  - Test C (10% limit): High throttling + scheduler overhead
+
+Expected pattern:
+  As throttle rate increases (>80%), scheduler overhead becomes significant
+  At very high throttle rates, kernel spends 10-15% CPU just enforcing limits
+
+Production Guidance:
+  - CPU limits <50% throttle rate: Acceptable overhead
+  - CPU limits >80% throttle rate: Consider removing limits, use requests only
+  - For latency-sensitive workloads: Avoid CPU limits entirely
+
+Next: Review results/20260120_155957/ and compare with expected_results.md
