@@ -33,7 +33,7 @@ At scale (1000s of containers), this overhead adds up quickly.
 
 | Test | Result | Rate |
 |------|--------|------|
-| Test A (Host) | 1268.83 ns per syscall
+| Test A (Host) | 268.83 ns per syscall
 | Test B (Container) | 298.31 ns per syscall
 | Overhead | +29.48 ns (+11.0%)
 
