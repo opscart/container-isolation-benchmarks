@@ -1,20 +1,20 @@
 === CPU Statistics ===
-usage_usec 2003455
-user_usec 1989733
-system_usec 13722
+usage_usec 2008627
+user_usec 1995786
+system_usec 12841
 nice_usec 0
 core_sched.force_idle_usec 0
 nr_periods 199
 nr_throttled 199
-throttled_usec 8097328
+throttled_usec 8164078
 nr_bursts 0
 burst_usec 0
 nr_periods:199
 nr_throttled:199
-throttled_usec:8097328
+throttled_usec:8164078
 
 Summary:
-  CPU usage: 10.064%
+  CPU usage: 9.818%
   Throttle rate: 100.0%
   Periods: 199
   Throttled: 199

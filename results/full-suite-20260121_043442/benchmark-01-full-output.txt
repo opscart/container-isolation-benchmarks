@@ -1,0 +1,37 @@
+=========================================
+Benchmark 01: Namespace Syscall Overhead
+=========================================
+
+Results will be saved to: results/20260121_043442
+
+=== Test A: Host PID Namespace (Baseline) ===
+Running 10M getpid() syscalls on host...
+=== getpid() Syscall Benchmark ===
+Iterations: 10000000
+Total time: 2.69 seconds
+Average: 268.83 nanoseconds per syscall
+Rate: 3.72 million syscalls/second
+
+=== Test B: Container PID Namespace ===
+Running 10M getpid() syscalls inside Docker container...
+=== getpid() Syscall Benchmark ===
+Iterations: 10000000
+Total time: 2.98 seconds
+Average: 298.31 nanoseconds per syscall
+Rate: 3.35 million syscalls/second
+
+=== Results Summary ===
+
+Test A (Host):      268.83 nanoseconds
+Test B (Container): 298.31 nanoseconds
+
+Namespace overhead: +10.0%
+
+What this means:
+  - Container syscalls are 10.0% slower due to PID namespace translation
+  - This overhead is constant for ALL syscalls in containers
+  - The kernel must translate PIDs through the namespace hierarchy
+
+Full results: results/20260121_043442/
+
+Next: Review results and compare with expected_results.md

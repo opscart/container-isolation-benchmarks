@@ -1,0 +1,5 @@
+=== getpid() Syscall Benchmark ===
+Iterations: 10000000
+Total time: 2.69 seconds
+Average: 268.83 nanoseconds per syscall
+Rate: 3.72 million syscalls/second

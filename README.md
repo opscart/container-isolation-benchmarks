@@ -15,8 +15,8 @@ This repository contains reproducible benchmarks measuring the performance overh
 ```
 ┌─────────────────────────────────────────────────────────────┐
 │  Benchmark 01: Namespace Syscall        +25% overhead       │
-│  ├─ Host:       116 ns                  [Acceptable]        │
-│  ├─ Container:  145 ns                                      │
+│  ├─ Host:       269 ns                  [Acceptable]        │
+│  ├─ Container:  298 ns                                      │
 ├─────────────────────────────────────────────────────────────┤
 │  Benchmark 02: CPU Throttling           Depends on limit    │
 │  ├─ Unlimited:  0% throttle rate        [Good]              │
@@ -25,9 +25,9 @@ This repository contains reproducible benchmarks measuring the performance overh
 │  └─             8.1s wasted (27%)                            │
 ├─────────────────────────────────────────────────────────────┤
 │  Benchmark 03: Network Latency          <1μs overhead       │
-│  ├─ Loopback:   19.0 μs                 [Breakthrough]      │
-│  ├─ veth:       19.2 μs                                      │
-│  └─ Overhead:   0.2 μs (0.96%)          [Problem solved]    │
+│  ├─ Loopback:   18.4 μs                 [Breakthrough]      │
+│  ├─ veth:       18.9 μs                                      │
+│  └─ Overhead:   0.6 μs (3.1%)          [Problem solved]    │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -44,16 +44,19 @@ Container isolation isn't free - but the costs have changed dramatically. Unders
 - **Cost optimization**: Where your compute budget actually goes
 - **Kernel upgrades**: Quantified benefits of modern kernel features
 
-### What Changed on Modern Kernels
+**Our Finding:**
+- Loopback baseline: 18.375 μs
+- Docker veth: 18.943 μs  
+- **Overhead: 0.568 μs (3.1%)**
 
-| Kernel Version | Network Overhead | Notes |
-|----------------|------------------|-------|
-| 5.4 (2020) | ~35 μs | Legacy baseline |
-| 5.15 (2021) | ~13 μs | 63% improvement |
-| 6.1 (2022) | ~8 μs | 77% improvement |
-| **6.14 (2024)** | **<1 μs** | **97% improvement** ← This work |
+**Historical Context (from literature):**
+Previous studies on older kernels reported significantly higher veth overhead:
+- Kernel 5.4 studies: ~30-40 μs overhead
+- Kernel 5.15 studies: ~10-15 μs overhead
+- Kernel 6.1 studies: ~5-10 μs overhead
 
-**Result:** The "container networking overhead" problem has been solved in modern kernels.
+**Our Kernel 6.14 measurement of 0.568μs represents a dramatic improvement, 
+though we did not test older kernels ourselves for direct comparison.**
 
 ---
 
@@ -63,7 +66,7 @@ Container isolation isn't free - but the costs have changed dramatically. Unders
 
 | Concept | Scope | Performance Impact |
 |---------|-------|-------------------|
-| **Linux Namespace** | Kernel-level isolation | +25% syscall, 1900μs cross-boundary |
+| **Linux Namespace** | Kernel-level isolation | +25% syscall, 18.375μs cross-boundary |
 | **Kubernetes Namespace** | API/RBAC grouping | No performance overhead |
 
 ### Benchmark 01: Namespace Syscall Overhead
@@ -72,9 +75,9 @@ Container isolation isn't free - but the costs have changed dramatically. Unders
 **Method:** Measure `getpid()` syscall performance across isolation boundaries using custom C benchmark (10M iterations)
 
 **Results (Kernel 6.14.0-1017-azure):**
-- Host process (baseline): **116.14 ns** (8.61 M/sec)
-- Container process: **145.12 ns** (6.89 M/sec)
-- **Overhead: +28.98 ns (+25.0%)**
+- Host process (baseline): **268.83 ns** (3.72 M/sec)
+- Container process: **298.31 ns** (3.35 M/sec)
+- **Overhead: +29.48 ns (+11.0%)**
 
 **Key Finding:** Container syscalls incur **25% overhead** due to PID namespace translation.
 
@@ -124,9 +127,9 @@ Container isolation isn't free - but the costs have changed dramatically. Unders
 **Method:** Measure TCP latency using sockperf (not ping) across network isolation boundaries
 
 **Results (Kernel 6.14.0-1017-azure):**
-- Loopback interface (baseline): **19.010 μs** (median: 18.2 μs)
-- Docker veth pair: **19.193 μs** (median: 18.4 μs)
-- **Overhead: 0.183 μs (0.96%)**
+- Loopback interface (baseline): **18.375 μs** (median: 17.5 μs)
+- Docker veth pair: **18.943 μs** (median: 17.8 μs)
+- **Overhead: 0.568 μs (3.1%)**
 
 **Breakthrough Finding:**
 
@@ -139,7 +142,9 @@ Modern kernels have **essentially eliminated veth overhead**. The 0.2μs differe
 | 5.4 | ~35 μs | Baseline |
 | 5.15 | ~13 μs | 63% reduction |
 | 6.1 | ~8 μs | 77% reduction |
-| **6.14** | **<1 μs** | **97% reduction** |
+| **6.14 (2024)** | **0.6 μs** | **Our measurement** |
+
+*Note: Older kernel data from literature, not our direct testing.*
 
 **Implication:**
 - Docker networking overhead concern is obsolete on modern kernels
@@ -341,8 +346,9 @@ container-isolation-benchmarks/
 ### Why Kernel Version Matters
 
 **Network overhead is highly kernel-dependent:**
-- Our Kernel 6.14 results show <1μs overhead
-- Older kernels (5.4) show ~35μs overhead
+- Our Kernel 6.14 results show 0.568μs overhead (3.1%)
+- Literature reports older kernels (5.4) showed ~35μs overhead
+- We did not test older kernels ourselves
 - **Always document your kernel version when benchmarking**
 
 ### Platform Compatibility
@@ -350,7 +356,7 @@ container-isolation-benchmarks/
 | Platform | Benchmark 01 | Benchmark 02 | Benchmark 03 | Notes |
 |----------|--------------|--------------|--------------|-------|
 | **Linux (Ubuntu 22.04+)** | Tested | Tested | Tested | Recommended |
-| **Azure/AWS/GCP VM** | Tested | Tested | Tested | Docker required |
+| **Azure VM** | Tested | Tested | Tested | Docker required |
 | **macOS (Docker Desktop)** | Partial | No | No | Syscall only, no cgroup v2 |
 | **Windows (WSL2)** | Untested | Untested | Untested | May work, not validated |
 | **Kubernetes/AKS** | Compatible | Compatible | Compatible | Same kernel primitives |

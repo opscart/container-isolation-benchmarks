@@ -2,20 +2,20 @@
 CONTAINER ISOLATION BENCHMARK ANALYSIS
 =========================================
 
-Generated: Tue Jan 20 22:01:03 EST 2026
-Kernel: 25.0.0
+Generated: Wed Jan 21 11:07:47 EST 2026
+Kernel: 6.14.0-1017-azure
 
 =========================================
 Benchmark 01: Namespace Syscall Overhead
 =========================================
 
 Results:
-  Host syscall:      116.14 ns (8.61 M/sec)
-  Container syscall: 145.12 ns (6.89 M/sec)
-  Overhead:          28.98 ns (20.0%)
+  Host syscall:      268.83 ns (3.72 M/sec)
+  Container syscall: 298.31 ns (3.35 M/sec)
+  Overhead:          29.48 ns (10.0%)
 
 Interpretation:
-  Moderate overhead (20-30%)
+  Low overhead (<20%)
 
 =========================================
 Benchmark 02: CPU Throttling Overhead
@@ -28,22 +28,22 @@ Results:
     Throttled: 0
 
   Moderate (50% limit):
-    Periods: 197
+    Periods: 198
     Throttled: 1
-    Throttle rate: 0%
+    Throttle rate: 0.5%
     Time throttled: .04s
 
   Aggressive (10% limit):
     Periods: 199
     Throttled: 199
     Throttle rate: 100.0%
-    Time throttled: 8.09s
-    ⚠️  WARNING: Severe throttling detected!
+    Time throttled: 8.16s
+    WARNING: Severe throttling detected!
 
   Control (100% limit):
     Periods: 198
     Throttled: 0
-    Throttle rate: 0%
+    Throttle rate: 0.0%
     Time throttled: 0s
 
 Key Findings:
@@ -55,19 +55,19 @@ Benchmark 03: Network Latency Overhead
 =========================================
 
 Results:
-  Loopback latency: 19.010 μs
-  veth latency:     19.193 μs
-  Overhead:         .183 μs (0%)
+  Loopback latency: 18.375 μs
+  veth latency:     18.943 μs
+  Overhead:         .568 μs (3.0%)
 
 Interpretation:
   Excellent: Minimal veth overhead (<1μs)
-  Kernel 25.0.0 has highly optimized veth
+  Kernel 6.14.0-1017-azure has highly optimized veth
 
-Historical Context:
+Historical Context (from literature):
   Kernel 5.4:  ~35 μs veth overhead
   Kernel 5.15: ~13 μs veth overhead
   Kernel 6.1:  ~8 μs veth overhead
-  This run:    .183 μs veth overhead
+  This run:    .568 μs veth overhead
 
 =========================================
 OVERALL SUMMARY
@@ -75,7 +75,7 @@ OVERALL SUMMARY
 
 Production Recommendations:
 
-1. Namespace Overhead (25%):
+1. Namespace Overhead (10.0%):
    → Accept as security cost
    → No optimization needed for typical workloads
 
@@ -84,14 +84,14 @@ Production Recommendations:
    → Set limits at p95 usage + 50% headroom
    → Example: If p95 = 300m, set limit = 450m
 
-3. Network Latency (<1μs on 6.14):
+3. Network Latency (<1μs measured):
    → Docker networking is safe for latency-sensitive apps
    → No special tuning needed on modern kernels
 
 Key Takeaways:
 
-  ✅ Container networking overhead solved (kernel 6.14)
-  ✅ Moderate CPU limits safe (<1% throttling)
-  ⚠️  Aggressive CPU limits harmful (100% throttling)
-   Namespace overhead acceptable (intrinsic to security)
+  Container networking overhead minimal (3.0%)
+  Moderate CPU limits safe (<1% throttling)
+  Aggressive CPU limits harmful (100% throttling)
+  Namespace overhead 10.0% (intrinsic to security)
 

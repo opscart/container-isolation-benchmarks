@@ -1,6 +1,5 @@
 #!/bin/bash
-# analysis/generate_summary.sh
-# Generate comprehensive summary from benchmark results
+# analysis/generate_summary.sh - FIXED VERSION
 
 set -eo pipefail
 
@@ -27,6 +26,11 @@ echo ""
 echo "Analyzing results from: $RESULTS_DIR"
 echo ""
 
+# Get ACTUAL kernel version
+ACTUAL_KERNEL=$(uname -r)
+echo "Actual kernel: $ACTUAL_KERNEL"
+echo ""
+
 # Output file
 OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
 
@@ -36,27 +40,12 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
     echo "========================================="
     echo ""
     echo "Generated: $(date)"
-    
-    # Try to get kernel version from benchmark results
-    if [ -f "$RESULTS_DIR/03-network-latency/summary.txt" ]; then
-        KERNEL=$(grep "Kernel:" "$RESULTS_DIR/03-network-latency/summary.txt" | awk '{print $2}')
-        echo "Kernel: $KERNEL"
-    else
-        # Fallback to system kernel (only accurate on Linux)
-        SYSTEM_KERNEL=$(uname -r)
-        if [[ "$SYSTEM_KERNEL" == *"Darwin"* ]] || [[ "$SYSTEM_KERNEL" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "Kernel: (Results analyzed on different system - check benchmark output)"
-        else
-            echo "Kernel: $SYSTEM_KERNEL"
-        fi
-    fi
+    echo "Kernel: $ACTUAL_KERNEL"
     echo ""
 
     #############################################
     # Benchmark 01: Namespace Syscall Overhead
     #############################################
-
-    BENCH01_OVERHEAD_PCT=""  # Store for later use
 
     if [ -d "$RESULTS_DIR/01-namespace-syscall" ]; then
         echo "========================================="
@@ -75,32 +64,34 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
             CONTAINER_NS=$(grep "Average:" "$CONTAINER_FILE" | awk '{print $2}')
             CONTAINER_RATE=$(grep "Rate:" "$CONTAINER_FILE" | awk '{print $2}')
 
-            if [ -n "$HOST_NS" ] && [ -n "$CONTAINER_NS" ]; then
-                # Calculate overhead
-                OVERHEAD=$(echo "scale=2; $CONTAINER_NS - $HOST_NS" | bc -l)
-                OVERHEAD_PCT=$(echo "scale=1; ($OVERHEAD / $HOST_NS) * 100" | bc -l)
-                BENCH01_OVERHEAD_PCT="$OVERHEAD_PCT"
+            # Calculate overhead
+            OVERHEAD=$(echo "scale=2; $CONTAINER_NS - $HOST_NS" | bc -l 2>/dev/null || echo "N/A")
+            if [ "$OVERHEAD" != "N/A" ] && [ -n "$HOST_NS" ] && [ "$HOST_NS" != "0" ]; then
+                OVERHEAD_PCT=$(echo "scale=1; ($OVERHEAD / $HOST_NS) * 100" | bc -l 2>/dev/null || echo "N/A")
+            else
+                OVERHEAD_PCT="N/A"
+            fi
 
-                echo "Results:"
-                echo "  Host syscall:      $HOST_NS ns ($HOST_RATE M/sec)"
-                echo "  Container syscall: $CONTAINER_NS ns ($CONTAINER_RATE M/sec)"
+            echo "Results:"
+            echo "  Host syscall:      $HOST_NS ns ($HOST_RATE M/sec)"
+            echo "  Container syscall: $CONTAINER_NS ns ($CONTAINER_RATE M/sec)"
+            if [ "$OVERHEAD_PCT" != "N/A" ]; then
                 echo "  Overhead:          $OVERHEAD ns (${OVERHEAD_PCT}%)"
-                echo ""
+            fi
+            echo ""
 
-                # Interpretation
-                echo "Interpretation:"
-                if (( $(echo "$OVERHEAD_PCT < 20" | bc -l) )); then
+            # Interpretation
+            echo "Interpretation:"
+            if [ "$OVERHEAD_PCT" != "N/A" ]; then
+                if (( $(echo "$OVERHEAD_PCT < 20" | bc -l 2>/dev/null) )); then
                     echo "  Low overhead (<20%)"
-                elif (( $(echo "$OVERHEAD_PCT < 30" | bc -l) )); then
+                elif (( $(echo "$OVERHEAD_PCT < 30" | bc -l 2>/dev/null) )); then
                     echo "  Moderate overhead (20-30%)"
                 else
-                    echo "  High overhead (>30%)"
+                    echo "  ⚠ High overhead (>30%)"
                 fi
-                echo ""
-            else
-                echo "WARNING: Could not extract syscall measurements"
-                echo ""
             fi
+            echo ""
         else
             echo "WARNING: Benchmark 01 result files not found"
             echo ""
@@ -126,14 +117,13 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
             
             if [ -f "$TEST_FILE" ]; then
                 # Extract values
-                NR_PERIODS=$(grep "^nr_periods:" "$TEST_FILE" | cut -d: -f2 | tr -d ' ')
-                NR_THROTTLED=$(grep "^nr_throttled:" "$TEST_FILE" | cut -d: -f2 | tr -d ' ')
-                THROTTLED_USEC=$(grep "^throttled_usec:" "$TEST_FILE" | cut -d: -f2 | tr -d ' ')
+                NR_PERIODS=$(grep "^nr_periods:" "$TEST_FILE" | cut -d: -f2)
+                NR_THROTTLED=$(grep "^nr_throttled:" "$TEST_FILE" | cut -d: -f2)
+                THROTTLED_USEC=$(grep "^throttled_usec:" "$TEST_FILE" | cut -d: -f2)
 
                 if [ -n "$NR_PERIODS" ] && [ "$NR_PERIODS" -gt 0 ]; then
-                    THROTTLE_PCT_RAW=$(echo "scale=3; ($NR_THROTTLED / $NR_PERIODS) * 100" | bc -l)
-                    THROTTLE_PCT=$(printf "%.1f" "$THROTTLE_PCT_RAW")
-                    THROTTLED_SEC=$(echo "scale=2; $THROTTLED_USEC / 1000000" | bc -l)
+                    THROTTLE_PCT=$(echo "scale=1; ($NR_THROTTLED / $NR_PERIODS) * 100" | bc -l 2>/dev/null || echo "N/A")
+                    THROTTLED_SEC=$(echo "scale=2; $THROTTLED_USEC / 1000000" | bc -l 2>/dev/null || echo "N/A")
                 else
                     THROTTLE_PCT="N/A"
                     THROTTLED_SEC="N/A"
@@ -156,8 +146,8 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
                     echo "    Time throttled: ${THROTTLED_SEC}s"
                     
                     # Highlight aggressive case
-                    if [ "$test" = "aggressive" ] && (( $(echo "$THROTTLE_PCT > 90" | bc -l) )); then
-                        echo "    WARNING: Severe throttling detected!"
+                    if [ "$test" = "aggressive" ] && (( $(echo "$THROTTLE_PCT > 90" | bc -l 2>/dev/null) )); then
+                        echo "    ⚠️  WARNING: Severe throttling detected!"
                     fi
                 fi
                 echo ""
@@ -171,9 +161,9 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
         CTRL_FILE="$RESULTS_DIR/02-cpu-throttling/throttle-control.txt"
         
         if [ -f "$AGG_FILE" ] && [ -f "$CTRL_FILE" ]; then
-            AGG_THROTTLED=$(grep "^nr_throttled:" "$AGG_FILE" | cut -d: -f2 | tr -d ' ')
-            AGG_PERIODS=$(grep "^nr_periods:" "$AGG_FILE" | cut -d: -f2 | tr -d ' ')
-            CTRL_THROTTLED=$(grep "^nr_throttled:" "$CTRL_FILE" | cut -d: -f2 | tr -d ' ')
+            AGG_THROTTLED=$(grep "^nr_throttled:" "$AGG_FILE" | cut -d: -f2)
+            AGG_PERIODS=$(grep "^nr_periods:" "$AGG_FILE" | cut -d: -f2)
+            CTRL_THROTTLED=$(grep "^nr_throttled:" "$CTRL_FILE" | cut -d: -f2)
             
             if [ "$AGG_THROTTLED" -gt 0 ] && [ "$CTRL_THROTTLED" -eq 0 ]; then
                 echo "  Control test validates: Throttling is from aggressive limits,"
@@ -187,9 +177,6 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
     # Benchmark 03: Network Latency Overhead
     #############################################
 
-    BENCH03_OVERHEAD=""
-    BENCH03_OVERHEAD_PCT=""
-
     if [ -d "$RESULTS_DIR/03-network-latency" ]; then
         echo "========================================="
         echo "Benchmark 03: Network Latency Overhead"
@@ -200,52 +187,55 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
         VETH_FILE="$RESULTS_DIR/03-network-latency/test-b-docker-veth.txt"
 
         if [ -f "$LOOPBACK_FILE" ] && [ -f "$VETH_FILE" ]; then
-            # Extract latencies
-            LOOPBACK_LAT=$(grep "Summary: Latency is" "$LOOPBACK_FILE" | awk '{print $5}')
-            VETH_LAT=$(grep "Summary: Latency is" "$VETH_FILE" | awk '{print $5}')
+            # Extract latencies - FIXED: awk '{print $4}' not '{print $5}'
+            LOOPBACK_LAT=$(grep "Summary: Latency is" "$LOOPBACK_FILE" | awk '{print $4}' 2>/dev/null)
+            VETH_LAT=$(grep "Summary: Latency is" "$VETH_FILE" | awk '{print $4}' 2>/dev/null)
 
             if [ -n "$LOOPBACK_LAT" ] && [ -n "$VETH_LAT" ]; then
                 # Calculate overhead
-                OVERHEAD=$(echo "scale=3; $VETH_LAT - $LOOPBACK_LAT" | bc -l)
-                # Use scale=2 for better percentage precision
-                OVERHEAD_PCT=$(echo "scale=2; ($OVERHEAD / $LOOPBACK_LAT) * 100" | bc -l)
-                # Round to 1 decimal for display
-                OVERHEAD_PCT_DISPLAY=$(printf "%.1f" "$OVERHEAD_PCT")
-                
-                BENCH03_OVERHEAD="$OVERHEAD"
-                BENCH03_OVERHEAD_PCT="$OVERHEAD_PCT_DISPLAY"
+                OVERHEAD=$(echo "scale=3; $VETH_LAT - $LOOPBACK_LAT" | bc -l 2>/dev/null || echo "N/A")
+                if [ "$OVERHEAD" != "N/A" ] && [ -n "$LOOPBACK_LAT" ] && [ "$LOOPBACK_LAT" != "0" ]; then
+                    OVERHEAD_PCT=$(echo "scale=1; ($OVERHEAD / $LOOPBACK_LAT) * 100" | bc -l 2>/dev/null || echo "N/A")
+                else
+                    OVERHEAD_PCT="N/A"
+                fi
 
                 echo "Results:"
                 echo "  Loopback latency: $LOOPBACK_LAT μs"
                 echo "  veth latency:     $VETH_LAT μs"
-                echo "  Overhead:         $OVERHEAD μs (${OVERHEAD_PCT_DISPLAY}%)"
+                if [ "$OVERHEAD" != "N/A" ] && [ "$OVERHEAD_PCT" != "N/A" ]; then
+                    echo "  Overhead:         $OVERHEAD μs (${OVERHEAD_PCT}%)"
+                fi
                 echo ""
 
                 # Interpretation
                 echo "Interpretation:"
-                OVERHEAD_ABS="${OVERHEAD#-}"  # Absolute value
-                
-                if (( $(echo "$OVERHEAD_ABS < 1" | bc -l) )); then
-                    echo "  Excellent: Minimal veth overhead (<1μs)"
-                    if [ -n "$KERNEL" ]; then
-                        echo "  Kernel $KERNEL has highly optimized veth"
+                if [ "$OVERHEAD" != "N/A" ]; then
+                    OVERHEAD_ABS="${OVERHEAD#-}"  # Absolute value
+                    
+                    if (( $(echo "$OVERHEAD_ABS < 1" | bc -l 2>/dev/null) )); then
+                        echo "  Excellent: Minimal veth overhead (<1μs)"
+                        echo "  Kernel $ACTUAL_KERNEL has highly optimized veth"
+                    elif (( $(echo "$OVERHEAD_ABS < 5" | bc -l 2>/dev/null) )); then
+                        echo "  Very Good: Low veth overhead (<5μs)"
+                    elif (( $(echo "$OVERHEAD_ABS < 15" | bc -l 2>/dev/null) )); then
+                        echo "  Good: Moderate veth overhead (<15μs)"
+                    else
+                        echo "  ⚠ Significant veth overhead (>15μs)"
+                        echo "  Consider kernel upgrade"
                     fi
-                elif (( $(echo "$OVERHEAD_ABS < 5" | bc -l) )); then
-                    echo "  Very Good: Low veth overhead (<5μs)"
-                elif (( $(echo "$OVERHEAD_ABS < 15" | bc -l) )); then
-                    echo "  Good: Moderate veth overhead (<15μs)"
-                else
-                    echo "  Significant veth overhead (>15μs)"
-                    echo "  Consider kernel upgrade"
                 fi
                 echo ""
 
-                # Historical context
-                echo "Historical Context (from literature):"
+                # Historical context - FIXED: Shows actual kernel
+                echo "Historical Context:"
                 echo "  Kernel 5.4:  ~35 μs veth overhead"
                 echo "  Kernel 5.15: ~13 μs veth overhead"
                 echo "  Kernel 6.1:  ~8 μs veth overhead"
-                echo "  This run:    $OVERHEAD μs veth overhead"
+                echo "  This run (kernel $ACTUAL_KERNEL): $OVERHEAD μs veth overhead"
+                echo ""
+            else
+                echo "ERROR: Could not extract latency values"
                 echo ""
             fi
         else
@@ -255,7 +245,7 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
     fi
 
     #############################################
-    # Overall Summary
+    # Overall Summary - FIXED: Uses actual data
     #############################################
 
     echo "========================================="
@@ -265,29 +255,47 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
 
     echo "Production Recommendations:"
     echo ""
-    
-    # Use actual measured overhead, not hardcoded value
-    if [ -n "$BENCH01_OVERHEAD_PCT" ]; then
-        echo "1. Namespace Overhead (${BENCH01_OVERHEAD_PCT}%):"
+
+    # Get actual PID overhead percentage
+    PID_OVERHEAD_PCT="N/A"
+    if [ -f "$RESULTS_DIR/01-namespace-syscall/test-a-host.txt" ] && \
+       [ -f "$RESULTS_DIR/01-namespace-syscall/test-b-container.txt" ]; then
+        HOST_NS=$(grep "Average:" "$RESULTS_DIR/01-namespace-syscall/test-a-host.txt" | awk '{print $2}')
+        CONTAINER_NS=$(grep "Average:" "$RESULTS_DIR/01-namespace-syscall/test-b-container.txt" | awk '{print $2}')
+        if [ -n "$HOST_NS" ] && [ -n "$CONTAINER_NS" ] && [ "$HOST_NS" != "0" ]; then
+            PID_OVERHEAD_PCT=$(echo "scale=1; (($CONTAINER_NS - $HOST_NS) / $HOST_NS) * 100" | bc -l 2>/dev/null || echo "N/A")
+        fi
+    fi
+
+    # Get actual network overhead
+    NETWORK_OVERHEAD="N/A"
+    if [ -f "$RESULTS_DIR/03-network-latency/test-a-loopback.txt" ] && \
+       [ -f "$RESULTS_DIR/03-network-latency/test-b-docker-veth.txt" ]; then
+        LOOPBACK_LAT=$(grep "Summary: Latency is" "$RESULTS_DIR/03-network-latency/test-a-loopback.txt" | awk '{print $4}')
+        VETH_LAT=$(grep "Summary: Latency is" "$RESULTS_DIR/03-network-latency/test-b-docker-veth.txt" | awk '{print $4}')
+        if [ -n "$LOOPBACK_LAT" ] && [ -n "$VETH_LAT" ]; then
+            NETWORK_OVERHEAD=$(echo "scale=3; $VETH_LAT - $LOOPBACK_LAT" | bc -l 2>/dev/null || echo "N/A")
+        fi
+    fi
+
+    # Use actual values, not hardcoded
+    if [ "$PID_OVERHEAD_PCT" != "N/A" ]; then
+        echo "1. Namespace Overhead (${PID_OVERHEAD_PCT}%):"
     else
         echo "1. Namespace Overhead:"
     fi
     echo "   → Accept as security cost"
     echo "   → No optimization needed for typical workloads"
     echo ""
-    
+
     echo "2. CPU Throttling:"
     echo "   → AVOID limits <20% of usage"
     echo "   → Set limits at p95 usage + 50% headroom"
     echo "   → Example: If p95 = 300m, set limit = 450m"
     echo ""
-    
-    if [ -n "$BENCH03_OVERHEAD" ]; then
-        if (( $(echo "$BENCH03_OVERHEAD < 1" | bc -l) )); then
-            echo "3. Network Latency (<1μs measured):"
-        else
-            echo "3. Network Latency (${BENCH03_OVERHEAD}μs measured):"
-        fi
+
+    if [ "$NETWORK_OVERHEAD" != "N/A" ]; then
+        echo "3. Network Latency (${NETWORK_OVERHEAD}μs on ${ACTUAL_KERNEL}):"
     else
         echo "3. Network Latency:"
     fi
@@ -298,20 +306,17 @@ OUTPUT_FILE="${RESULTS_DIR}/ANALYSIS_SUMMARY.txt"
     echo "Key Takeaways:"
     echo ""
     
-    # Dynamic takeaways based on actual results
-    if [ -n "$BENCH03_OVERHEAD_PCT" ]; then
-        if (( $(echo "$BENCH03_OVERHEAD_PCT < 5" | bc -l) )); then
-            echo "  Container networking overhead minimal (${BENCH03_OVERHEAD_PCT}%)"
-        else
-            echo "  Container networking overhead: ${BENCH03_OVERHEAD_PCT}%"
-        fi
+    if [ "$NETWORK_OVERHEAD" != "N/A" ] && (( $(echo "${NETWORK_OVERHEAD#-} < 1" | bc -l 2>/dev/null) )); then
+        echo "  ✅ Container networking overhead solved (kernel ${ACTUAL_KERNEL})"
+    else
+        echo "  ⚠️  Container networking overhead present"
     fi
     
-    echo "  Moderate CPU limits safe (<1% throttling)"
-    echo "  Aggressive CPU limits harmful (100% throttling)"
+    echo "  ✅ Moderate CPU limits safe (<1% throttling)"
+    echo "  ⚠️  Aggressive CPU limits harmful (100% throttling)"
     
-    if [ -n "$BENCH01_OVERHEAD_PCT" ]; then
-        echo "  Namespace overhead ${BENCH01_OVERHEAD_PCT}% (intrinsic to security)"
+    if [ "$PID_OVERHEAD_PCT" != "N/A" ]; then
+        echo "  Namespace overhead acceptable (${PID_OVERHEAD_PCT}% intrinsic to security)"
     else
         echo "  Namespace overhead acceptable (intrinsic to security)"
     fi

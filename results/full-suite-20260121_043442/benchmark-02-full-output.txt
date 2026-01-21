@@ -1,0 +1,143 @@
+=========================================
+Benchmark 02: CPU Throttling Overhead
+=========================================
+
+Compiling pure CPU workload...
+Compiling pure_cpu_workload.c (static binary for Alpine compatibility)...
+pure_cpu_workload.c: In function ‘main’:
+pure_cpu_workload.c:53:15: warning: unused variable ‘sleep_ns’ [-Wunused-variable]
+   53 |     long long sleep_ns = (long long)sleep_ms * 1000000LL;
+      |               ^~~~~~~~
+Successfully compiled pure_cpu_workload
+
+Test it:
+  ./pure_cpu_workload              # Default: 50ms burst, 50ms sleep, 60s
+  ./pure_cpu_workload 100 100 10   # 100ms burst, 100ms sleep, 10s
+
+Results: results/20260121_043449
+
+Test duration: 30 seconds per test
+Workload: Pure CPU (50ms burst + 50ms sleep)
+
+=== throttle-baseline ===
+Hypothesis: Unlimited CPU → minimal throttling
+
+Workload running...
+  Found cgroup: /sys/fs/cgroup/system.slice/docker-069eed75e32f5230d4ffceba8be29cadd6e0b939ca21a0bf5d0f8899b54e93e1.scope
+Sampling CPU usage...
+Observed average CPU usage: 50.07%
+Reading cgroup stats...
+=== CPU Statistics ===
+usage_usec 9886741
+user_usec 9868744
+system_usec 17997
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 0
+nr_throttled 0
+throttled_usec 0
+nr_bursts 0
+burst_usec 0
+  Stats saved to results/20260121_043449/throttle-baseline.txt
+
+Summary:
+  CPU usage: 50.07%
+  WARNING: Could not calculate throttle stats
+Waiting for workload to complete...
+
+=== throttle-moderate ===
+Hypothesis: 50% limit on 50% workload → moderate throttling
+
+Workload running...
+  Found cgroup: /sys/fs/cgroup/system.slice/docker-9dd7d0ef3847a9c8390ca57a059d226754913a995690e6b44a93a4f6b1b09ace.scope
+Sampling CPU usage...
+Observed average CPU usage: 50.08%
+Reading cgroup stats...
+=== CPU Statistics ===
+usage_usec 9857996
+user_usec 9844982
+system_usec 13013
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 198
+nr_throttled 1
+throttled_usec 49507
+nr_bursts 0
+burst_usec 0
+  Stats saved to results/20260121_043449/throttle-moderate.txt
+
+Summary:
+  CPU usage: 50.08%
+  Throttle rate: 0%
+  Periods: 198
+  Throttled: 1
+Waiting for workload to complete...
+
+=== throttle-aggressive ===
+Hypothesis: 10% limit → high throttling
+
+Workload running...
+  Found cgroup: /sys/fs/cgroup/system.slice/docker-af390311cb9f0294e1ab95cd61c976605d320717b15b7f5bd774af57dc47db64.scope
+Sampling CPU usage...
+Observed average CPU usage: 9.818%
+Reading cgroup stats...
+=== CPU Statistics ===
+usage_usec 2008627
+user_usec 1995786
+system_usec 12841
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 199
+nr_throttled 199
+throttled_usec 8164078
+nr_bursts 0
+burst_usec 0
+  Stats saved to results/20260121_043449/throttle-aggressive.txt
+
+Summary:
+  CPU usage: 9.818%
+  Throttle rate: 100.0%
+  Periods: 199
+  Throttled: 199
+Waiting for workload to complete...
+
+=== throttle-control ===
+Hypothesis: 100% limit → minimal throttling (control)
+
+Workload running...
+  Found cgroup: /sys/fs/cgroup/system.slice/docker-6ee3ad8163e3475393ede72b09e488293c4ac254a2dddd18b54d30fe94f30f78.scope
+Sampling CPU usage...
+Observed average CPU usage: 49.998%
+Reading cgroup stats...
+=== CPU Statistics ===
+usage_usec 9887279
+user_usec 9873276
+system_usec 14003
+nice_usec 0
+core_sched.force_idle_usec 0
+nr_periods 198
+nr_throttled 0
+throttled_usec 0
+nr_bursts 0
+burst_usec 0
+  Stats saved to results/20260121_043449/throttle-control.txt
+
+Summary:
+  CPU usage: 49.998%
+  Throttle rate: 0%
+  Periods: 198
+  Throttled: 0
+Waiting for workload to complete...
+
+
+=== Summary ===
+
+Full results: results/20260121_043449/
+
+Result files:
+-rw-r--r-- 1 root root 340 Jan 21 04:36 results/20260121_043449/throttle-aggressive.txt
+-rw-r--r-- 1 root root 310 Jan 21 04:35 results/20260121_043449/throttle-baseline.txt
+-rw-r--r-- 1 root root 319 Jan 21 04:36 results/20260121_043449/throttle-control.txt
+-rw-r--r-- 1 root root 326 Jan 21 04:35 results/20260121_043449/throttle-moderate.txt
+
+Done.

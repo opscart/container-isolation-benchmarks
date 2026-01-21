@@ -35,27 +35,35 @@ In production:
 
 ## Our Results (Kernel 6.14.0-1017-azure)
 
-### Breakthrough Finding
+### Key Finding
 
 | Test | Average Latency | Median (p50) | p99 | Samples |
 |------|-----------------|--------------|-----|---------|
-| A: Loopback | 19.010 μs | 18.2 μs | 28.6 μs | 250,311 |
-| B: Docker veth | 19.193 μs | 18.4 μs | 29.3 μs | 248,019 |
-| **Overhead** | **0.183 μs** | **0.2 μs** | **0.7 μs** | - |
-| **Percentage** | **0.96%** | - | - | - |
+| A: Loopback | 18.375 μs | 17.5 μs | 24.6 μs | 259,087 |
+| B: Docker veth | 18.943 μs | 17.8 μs | 25.8 μs | 251,604 |
+| **Overhead** | **0.568 μs** | **0.3 μs** | **1.2 μs** | - |
+| **Percentage** | **3.1%** | - | - | - |
 
-**Result:** Modern kernels have **essentially eliminated veth overhead**. The 0.2μs difference is within measurement noise.
+**Result:** veth overhead on Kernel 6.14 is 0.568 μs (3.1%), making it 
+negligible for the vast majority of applications. This represents a dramatic 
+improvement over older kernels.
 
-### Historical Context
+### Comparison with Literature
 
-| Kernel Version | veth Overhead | Year | Improvement |
-|----------------|---------------|------|-------------|
-| 5.4 | ~35 μs | 2019 | Baseline |
-| 5.15 | ~13 μs | 2021 | 63% reduction |
-| 6.1 | ~8 μs | 2022 | 77% reduction |
-| **6.14** | **<1 μs** | **2024** | **97% reduction** |
+**Our measurement (Kernel 6.14):** 0.568 μs overhead (3.1%)
 
-**This is a breakthrough:** The "container networking overhead" problem has been solved.
+**Reported in published studies:**
+| Kernel | Reported Overhead | Notes |
+|--------|-------------------|-------|
+| 5.4 | ~30-40 μs | From literature |
+| 5.15 | ~10-15 μs | From literature |
+| 6.1 | ~5-10 μs | From literature |
+| **6.14** | **0.568 μs** | **This work** |
+
+**Important:** We did not test older kernels ourselves. The comparison above 
+uses reported values from published studies to provide historical context. 
+Our Kernel 6.14 measurement shows significant improvement, though direct 
+comparison requires testing on identical hardware.
 
 ## CRITICAL: Why We Use sockperf (Not ping)
 
@@ -260,16 +268,6 @@ Each packet historically required:
 - Improved namespace context switching
 
 **Result:** veth traversal is now as fast as a function call.
-
-## Expected Results by Environment
-
-| Environment | Kernel | Loopback (μs) | veth (μs) | Overhead |
-|-------------|--------|---------------|-----------|----------|
-| **Azure (our test)** | 6.14 | 19.0 | 19.2 | +1.0% |
-| **AWS m5.large** | 6.1 | 15.0 | 23.0 | +53% |
-| **GCP n2** | 5.15 | 18.0 | 31.0 | +72% |
-| **Bare metal** | 6.14 | 12.0 | 12.5 | +4.2% |
-| **Old VM** | 5.4 | 25.0 | 60.0 | +140% |
 
 **Critical insight:** Kernel version matters more than hardware for veth performance.
 

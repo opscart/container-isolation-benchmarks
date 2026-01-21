@@ -33,15 +33,17 @@ At scale (1000s of containers), this overhead adds up quickly.
 
 | Test | Result | Rate |
 |------|--------|------|
-| Test A (Host) | 116.14 ns | 8.61 M/sec |
-| Test B (Container) | 145.12 ns | 6.89 M/sec |
+| Test A (Host) | 1268.83 ns per syscall
+| Test B (Container) | 298.31 ns per syscall
+| Overhead | +29.48 ns (+11.0%)
 
 ### Analysis
 
 **Container Overhead:**
-- Difference: 145.12 - 116.14 = 28.98 ns
-- Overhead: **25.0%**
-- **Conclusion:** Container syscalls are ~25% slower due to PID namespace translation
+- Difference: 298.31 - 268.83 = 29.48 ns
+- Overhead: (29.48 / 268.83) × 100 = 11.0%
+
+- **Conclusion:** Container syscalls are ~11% slower due to PID namespace translation
 
 ## How It Works
 
