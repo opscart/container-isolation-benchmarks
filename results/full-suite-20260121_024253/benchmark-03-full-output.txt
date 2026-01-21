@@ -1,0 +1,115 @@
+=========================================
+Benchmark 03: Network Latency
+=========================================
+
+Results: results/20260121_024508
+Kernel: 6.14.0-1017-azure
+
+=== Test A: Loopback Baseline ===
+
+Starting sockperf server on 127.0.0.1...
+Running sockperf ping-pong (10 seconds)...
+sockperf: [2;35m== version #3.7-no.git == [0m
+sockperf[CLIENT] send on:sockperf: using recvfrom() to block on socket(s)
+
+[ 0] IP = 127.0.0.1       PORT = 12345 # TCP
+sockperf: Warmup stage (sending a few dummy messages)...
+sockperf: Starting test...
+sockperf: Test end (interrupted by timer)
+sockperf: Test ended
+sockperf: [Total Run] RunTime=10.000 sec; Warm up time=400 msec; SentMessages=261435; ReceivedMessages=261434
+sockperf: ========= Printing statistics for Server No: 0
+sockperf: [Valid Duration] RunTime=9.550 sec; SentMessages=250311; ReceivedMessages=250311
+sockperf: [2;35m====> avg-latency=19.010 (std-dev=2.562)[0m
+sockperf: # dropped messages = 0; # duplicated messages = 0; # out-of-order messages = 0
+sockperf: Summary: Latency is 19.010 usec
+sockperf: [2;35mTotal 250311 observations[0m; each percentile contains 2503.11 observations
+sockperf: ---> <MAX> observation =  211.823
+sockperf: ---> percentile 99.999 =  142.764
+sockperf: ---> percentile 99.990 =   47.344
+sockperf: ---> percentile 99.900 =   33.202
+sockperf: ---> percentile 99.000 =   28.555
+sockperf: ---> percentile 90.000 =   22.130
+sockperf: ---> percentile 75.000 =   19.101
+sockperf: ---> percentile 50.000 =   18.214
+sockperf: ---> percentile 25.000 =   17.803
+sockperf: ---> <MIN> observation =    9.279
+
+Loopback latency: 19.010 μs
+
+=== Test B: Docker veth ===
+
+Starting Debian container...
+Waiting for container to start...
+Container IP: 172.17.0.2
+
+Running sockperf ping-pong (10 seconds)...
+sockperf: [2;35m== version #3.7-no.git == [0m
+sockperf[CLIENT] send on:sockperf: using recvfrom() to block on socket(s)
+
+[ 0] IP = 172.17.0.2      PORT = 12345 # TCP
+sockperf: Warmup stage (sending a few dummy messages)...
+sockperf: Starting test...
+sockperf: Test end (interrupted by timer)
+sockperf: Test ended
+sockperf: [Total Run] RunTime=10.000 sec; Warm up time=400 msec; SentMessages=260070; ReceivedMessages=260069
+sockperf: ========= Printing statistics for Server No: 0
+sockperf: [Valid Duration] RunTime=9.550 sec; SentMessages=248019; ReceivedMessages=248019
+sockperf: [2;35m====> avg-latency=19.193 (std-dev=2.659)[0m
+sockperf: # dropped messages = 0; # duplicated messages = 0; # out-of-order messages = 0
+sockperf: Summary: Latency is 19.193 usec
+sockperf: [2;35mTotal 248019 observations[0m; each percentile contains 2480.19 observations
+sockperf: ---> <MAX> observation =  268.281
+sockperf: ---> percentile 99.999 =  159.624
+sockperf: ---> percentile 99.990 =   46.344
+sockperf: ---> percentile 99.900 =   33.337
+sockperf: ---> percentile 99.000 =   29.312
+sockperf: ---> percentile 90.000 =   22.648
+sockperf: ---> percentile 75.000 =   19.247
+sockperf: ---> percentile 50.000 =   18.368
+sockperf: ---> percentile 25.000 =   17.889
+sockperf: ---> <MIN> observation =    8.869
+
+veth latency: 19.193 μs
+
+=== Analysis ===
+
+TCP Latency Comparison:
+  Loopback (127.0.0.1): 19.010 μs
+  Docker veth:          19.193 μs
+  Overhead:             .183 μs (0%)
+
+Interpretation:
+  Excellent: Minimal veth overhead (<1μs)
+  Kernel 6.14.0-1017-azure has highly optimized veth performance
+
+Environment:
+  Kernel: 6.14.0-1017-azure
+  Docker Network: bridge (default)
+  Date: Wed Jan 21 02:45:49 UTC 2026
+
+=== Summary ===
+
+Full results saved to: results/20260121_024508/
+
+Result files:
+-rw-r--r-- 1 root root  379 Jan 21 02:45 results/20260121_024508/summary.txt
+-rw-r--r-- 1 root root 1.3K Jan 21 02:45 results/20260121_024508/test-a-loopback.txt
+-rw-r--r-- 1 root root 1.3K Jan 21 02:45 results/20260121_024508/test-b-docker-veth.txt
+
+=== FINAL RESULTS ===
+TCP Latency Comparison:
+  Loopback (127.0.0.1): 19.010 μs
+  Docker veth:          19.193 μs
+  Overhead:             .183 μs (0%)
+
+Interpretation:
+  Excellent: Minimal veth overhead (<1μs)
+  Kernel 6.14.0-1017-azure has highly optimized veth performance
+
+Environment:
+  Kernel: 6.14.0-1017-azure
+  Docker Network: bridge (default)
+  Date: Wed Jan 21 02:45:49 UTC 2026
+
+Done.

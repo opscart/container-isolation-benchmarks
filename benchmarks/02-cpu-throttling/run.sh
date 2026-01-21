@@ -1,6 +1,6 @@
 #!/bin/bash
 # benchmarks/02-cpu-throttling/run.sh
-# Measure CPU throttling overhead from cgroup limits
+# FIXED VERSION - Read cgroup stats BEFORE container stops
 
 set -eo pipefail
 
@@ -12,243 +12,225 @@ echo "Benchmark 02: CPU Throttling Overhead"
 echo "========================================="
 echo ""
 
-# Check if Docker is available
+# Check Docker
 if ! command -v docker &> /dev/null; then
-    echo "Docker not found. This benchmark requires Docker."
+    echo "Docker not found."
     exit 1
 fi
 
 if ! docker info &> /dev/null 2>&1; then
-    echo "Docker daemon not running. Please start Docker."
+    echo "Docker daemon not running."
     exit 1
 fi
 
-# Create results directory
+# Compile if needed
+if [ ! -f pure_cpu_workload ]; then
+    echo "Compiling pure CPU workload..."
+    ./compile.sh
+    echo ""
+fi
+
+# Create results
 mkdir -p results
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
 RESULT_DIR="results/${TIMESTAMP}"
 mkdir -p "$RESULT_DIR"
 
-echo "Results will be saved to: $RESULT_DIR"
-echo ""
-
-# Cleanup any leftover containers
-echo "Cleaning up any leftover containers..."
-docker rm -f throttle-baseline throttle-moderate throttle-aggressive 2>/dev/null || true
-echo ""
-
-# Test duration
-TEST_DURATION=60
-echo "Test duration: ${TEST_DURATION} seconds per test"
-echo ""
-
-#############################################
-# Test A: No CPU Limit (Baseline)
-#############################################
-
-echo "=== Test A: No CPU Limit (Baseline) ==="
-echo "Creating container with unlimited CPU..."
-
-docker run -d --name throttle-baseline alpine sh -c '
-  # CPU-intensive loop
-  while true; do :; done
-' > /dev/null
-
-echo "Running workload for ${TEST_DURATION} seconds..."
-sleep ${TEST_DURATION}
-
-# Get container ID
-CONTAINER_ID=$(docker inspect throttle-baseline --format '{{.Id}}')
-
-# Find cgroup path (try both cgroup v1 and v2)
-CGROUP_PATH=""
-if [ -d "/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope" ]; then
-    # cgroup v2 (modern systems)
-    CGROUP_PATH="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"
-elif [ -d "/sys/fs/cgroup/cpu/docker/${CONTAINER_ID}" ]; then
-    # cgroup v1
-    CGROUP_PATH="/sys/fs/cgroup/cpu/docker/${CONTAINER_ID}"
-fi
-
-if [ -z "$CGROUP_PATH" ] || [ ! -d "$CGROUP_PATH" ]; then
-    echo "⚠  Warning: Cannot find cgroup path for container"
-    echo "  Container may be using different cgroup driver"
-    echo "  Attempting to read stats anyway..."
-    
-    # Try to get stats from Docker API
-    docker stats --no-stream throttle-baseline | tee "$RESULT_DIR/test-a-baseline-stats.txt"
-else
-    echo "Found cgroup at: $CGROUP_PATH"
-    echo ""
-    
-    # Read CPU stats
-    if [ -f "${CGROUP_PATH}/cpu.stat" ]; then
-        # cgroup v2
-        echo "=== CPU Statistics (cgroup v2) ===" | tee "$RESULT_DIR/test-a-baseline.txt"
-        cat "${CGROUP_PATH}/cpu.stat" | tee -a "$RESULT_DIR/test-a-baseline.txt"
-    elif [ -f "${CGROUP_PATH}/cpuacct.stat" ]; then
-        # cgroup v1
-        echo "=== CPU Statistics (cgroup v1) ===" | tee "$RESULT_DIR/test-a-baseline.txt"
-        cat "${CGROUP_PATH}/cpuacct.stat" | tee -a "$RESULT_DIR/test-a-baseline.txt"
-        cat "${CGROUP_PATH}/cpu.stat" | tee -a "$RESULT_DIR/test-a-baseline.txt"
-    fi
-fi
-
-echo ""
-echo "Baseline: No throttling expected (unlimited CPU)"
+echo "Results: $RESULT_DIR"
 echo ""
 
 # Cleanup
-docker rm -f throttle-baseline > /dev/null
-sleep 2
+docker rm -f throttle-baseline throttle-moderate throttle-aggressive throttle-control 2>/dev/null || true
 
-#############################################
-# Test B: Moderate CPU Limit (50%)
-#############################################
-
-echo "=== Test B: Moderate CPU Limit (50% of 1 core) ==="
-echo "Creating container with --cpus=0.5..."
-
-docker run -d --name throttle-moderate --cpus=0.5 alpine sh -c '
-  while true; do :; done
-' > /dev/null
-
-echo "Running workload for ${TEST_DURATION} seconds..."
-sleep ${TEST_DURATION}
-
-CONTAINER_ID=$(docker inspect throttle-moderate --format '{{.Id}}')
-
-# Find cgroup path
-CGROUP_PATH=""
-if [ -d "/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope" ]; then
-    CGROUP_PATH="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"
-elif [ -d "/sys/fs/cgroup/cpu/docker/${CONTAINER_ID}" ]; then
-    CGROUP_PATH="/sys/fs/cgroup/cpu/docker/${CONTAINER_ID}"
-fi
-
-if [ -n "$CGROUP_PATH" ] && [ -d "$CGROUP_PATH" ]; then
-    echo "=== CPU Statistics ===" | tee "$RESULT_DIR/test-b-moderate.txt"
-    
-    if [ -f "${CGROUP_PATH}/cpu.stat" ]; then
-        cat "${CGROUP_PATH}/cpu.stat" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-        
-        # Parse and analyze (handle both cgroup v1 and v2)
-        NR_PERIODS=$(grep "nr_periods" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
-        NR_THROTTLED=$(grep "nr_throttled" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
-        
-        # Try both field names (v1: throttled_time in ns, v2: throttled_usec in μs)
-        THROTTLED_TIME=$(grep "throttled_time" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "")
-        THROTTLED_USEC=$(grep "throttled_usec" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "")
-        
-        if [ -n "$NR_PERIODS" ] && [ "$NR_PERIODS" -gt 0 ]; then
-            THROTTLE_PERCENT=$(echo "scale=1; ($NR_THROTTLED / $NR_PERIODS) * 100" | bc)
-            
-            # Convert to seconds (handle both v1 and v2)
-            if [ -n "$THROTTLED_TIME" ] && [ "$THROTTLED_TIME" != "0" ]; then
-                # cgroup v1: nanoseconds
-                WASTED_SECONDS=$(echo "scale=2; $THROTTLED_TIME / 1000000000" | bc)
-            elif [ -n "$THROTTLED_USEC" ] && [ "$THROTTLED_USEC" != "0" ]; then
-                # cgroup v2: microseconds
-                WASTED_SECONDS=$(echo "scale=2; $THROTTLED_USEC / 1000000" | bc)
-            else
-                WASTED_SECONDS="0"
-            fi
-            
-            echo "" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-            echo "Analysis:" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-            echo "  Total periods: $NR_PERIODS" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-            echo "  Throttled periods: $NR_THROTTLED" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-            echo "  Throttle rate: ${THROTTLE_PERCENT}%" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-            echo "  Time in throttled state: ${WASTED_SECONDS}s out of ${TEST_DURATION}s" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-            
-            WASTE_PERCENT=$(echo "scale=1; ($WASTED_SECONDS / $TEST_DURATION) * 100" | bc)
-            echo "  Percentage of time throttled: ${WASTE_PERCENT}%" | tee -a "$RESULT_DIR/test-b-moderate.txt"
-        fi
-    fi
-fi
-
+# Test duration
+TEST_DURATION=30  # 30 seconds
+echo "Test duration: ${TEST_DURATION} seconds per test"
+echo "Workload: Pure CPU (50ms burst + 50ms sleep)"
 echo ""
 
-docker rm -f throttle-moderate > /dev/null
-sleep 2
-
-#############################################
-# Test C: Aggressive CPU Limit (10%)
-#############################################
-
-echo "=== Test C: Aggressive CPU Limit (10% of 1 core) ==="
-echo "Creating container with --cpus=0.1..."
-
-docker run -d --name throttle-aggressive --cpus=0.1 alpine sh -c '
-  while true; do :; done
-' > /dev/null
-
-echo "Running workload for ${TEST_DURATION} seconds..."
-sleep ${TEST_DURATION}
-
-CONTAINER_ID=$(docker inspect throttle-aggressive --format '{{.Id}}')
-
-# Find cgroup path
-CGROUP_PATH=""
-if [ -d "/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope" ]; then
-    CGROUP_PATH="/sys/fs/cgroup/system.slice/docker-${CONTAINER_ID}.scope"
-elif [ -d "/sys/fs/cgroup/cpu/docker/${CONTAINER_ID}" ]; then
-    CGROUP_PATH="/sys/fs/cgroup/cpu/docker/${CONTAINER_ID}"
-fi
-
-if [ -n "$CGROUP_PATH" ] && [ -d "$CGROUP_PATH" ]; then
-    echo "=== CPU Statistics ===" | tee "$RESULT_DIR/test-c-aggressive.txt"
+# Function to find cgroup path for a container
+find_cgroup_path() {
+    local container_name=$1
+    local container_id=$(docker inspect "$container_name" --format '{{.Id}}')
     
-    if [ -f "${CGROUP_PATH}/cpu.stat" ]; then
-        cat "${CGROUP_PATH}/cpu.stat" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
+    # Try common cgroup v2 paths first
+    if [ -d "/sys/fs/cgroup/system.slice/docker-${container_id}.scope" ]; then
+        echo "/sys/fs/cgroup/system.slice/docker-${container_id}.scope"
+        return 0
+    fi
+    
+    # Try cgroup v1 paths
+    for base_path in \
+        "/sys/fs/cgroup/cpu/docker/${container_id}" \
+        "/sys/fs/cgroup/cpu,cpuacct/docker/${container_id}" \
+        "/sys/fs/cgroup/cpu/system.slice/docker-${container_id}.scope" \
+        "/sys/fs/cgroup/cpuacct/docker/${container_id}"
+    do
+        if [ -d "$base_path" ]; then
+            echo "$base_path"
+            return 0
+        fi
+    done
+    
+    # Last resort: search
+    local found=$(find /sys/fs/cgroup -type d -name "*${container_id:0:12}*" 2>/dev/null | head -1)
+    if [ -n "$found" ]; then
+        echo "$found"
+        return 0
+    fi
+    
+    return 1
+}
+
+# Function to read CPU stats from cgroup
+read_cpu_stats() {
+    local cgroup_path=$1
+    local output_file=$2
+    
+    if [ -f "${cgroup_path}/cpu.stat" ]; then
+        # cgroup v2
+        cat "${cgroup_path}/cpu.stat" | tee -a "$output_file"
         
-        # Parse and analyze (handle both cgroup v1 and v2)
-        NR_PERIODS=$(grep "nr_periods" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
-        NR_THROTTLED=$(grep "nr_throttled" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
+        local nr_periods=$(grep "nr_periods" "${cgroup_path}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
+        local nr_throttled=$(grep "nr_throttled" "${cgroup_path}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
+        local throttled_usec=$(grep "throttled_usec" "${cgroup_path}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
         
-        # Try both field names
-        THROTTLED_TIME=$(grep "throttled_time" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "")
-        THROTTLED_USEC=$(grep "throttled_usec" "${CGROUP_PATH}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "")
+        echo "nr_periods:$nr_periods" >> "$output_file"
+        echo "nr_throttled:$nr_throttled" >> "$output_file"
+        echo "throttled_usec:$throttled_usec" >> "$output_file"
         
-        if [ -n "$NR_PERIODS" ] && [ "$NR_PERIODS" -gt 0 ]; then
-            THROTTLE_PERCENT=$(echo "scale=1; ($NR_THROTTLED / $NR_PERIODS) * 100" | bc)
-            
-            # Convert to seconds (handle both v1 and v2)
-            if [ -n "$THROTTLED_TIME" ] && [ "$THROTTLED_TIME" != "0" ]; then
-                # cgroup v1: nanoseconds
-                WASTED_SECONDS=$(echo "scale=2; $THROTTLED_TIME / 1000000000" | bc)
-            elif [ -n "$THROTTLED_USEC" ] && [ "$THROTTLED_USEC" != "0" ]; then
-                # cgroup v2: microseconds
-                WASTED_SECONDS=$(echo "scale=2; $THROTTLED_USEC / 1000000" | bc)
-            else
-                WASTED_SECONDS="0"
-            fi
-            
-            echo "" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            echo "Analysis:" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            echo "  Total periods: $NR_PERIODS" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            echo "  Throttled periods: $NR_THROTTLED" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            echo "  Throttle rate: ${THROTTLE_PERCENT}%" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            echo "  Time in throttled state: ${WASTED_SECONDS}s out of ${TEST_DURATION}s" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            
-            WASTE_PERCENT=$(echo "scale=1; ($WASTED_SECONDS / $TEST_DURATION) * 100" | bc)
-            echo "  Percentage of time throttled: ${WASTE_PERCENT}%" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            
-            # Calculate scheduler overhead estimate
-            # At high throttle rates, scheduler overhead is approximately 10-15% of throttled time
-            if (( $(echo "$THROTTLE_PERCENT > 80" | bc -l) )); then
-                SCHEDULER_OVERHEAD=$(echo "scale=2; $WASTED_SECONDS * 0.12" | bc)
-                echo "" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-                echo "  Estimated scheduler overhead: ~${SCHEDULER_OVERHEAD}s" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-                echo "  (At >80% throttle rate, ~10-15% overhead from scheduler)" | tee -a "$RESULT_DIR/test-c-aggressive.txt"
-            fi
+    elif [ -f "${cgroup_path}/cpu.cfs_period_us" ]; then
+        # cgroup v1
+        echo "=== cgroup v1 CPU stats ===" | tee -a "$output_file"
+        [ -f "${cgroup_path}/cpu.cfs_quota_us" ] && echo "cpu.cfs_quota_us: $(cat ${cgroup_path}/cpu.cfs_quota_us)" | tee -a "$output_file"
+        [ -f "${cgroup_path}/cpu.cfs_period_us" ] && echo "cpu.cfs_period_us: $(cat ${cgroup_path}/cpu.cfs_period_us)" | tee -a "$output_file"
+        [ -f "${cgroup_path}/cpu.stat" ] && cat "${cgroup_path}/cpu.stat" | tee -a "$output_file"
+        [ -f "${cgroup_path}/cpuacct.stat" ] && cat "${cgroup_path}/cpuacct.stat" | tee -a "$output_file"
+        
+        # Parse throttling stats
+        local nr_periods=$(grep "nr_periods" "${cgroup_path}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
+        local nr_throttled=$(grep "nr_throttled" "${cgroup_path}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
+        local throttled_time=$(grep "throttled_time" "${cgroup_path}/cpu.stat" 2>/dev/null | awk '{print $2}' || echo "0")
+        
+        echo "nr_periods:$nr_periods" >> "$output_file"
+        echo "nr_throttled:$nr_throttled" >> "$output_file"
+        echo "throttled_time:$throttled_time" >> "$output_file"
+    else
+        echo "WARNING: No CPU stats found in $cgroup_path" | tee -a "$output_file"
+        return 1
+    fi
+    
+    return 0
+}
+
+# Function to analyze results
+analyze_results() {
+    local result_file=$1
+    local actual_cpu=$2
+    local test_name=$3
+    
+    if [ ! -f "$result_file" ]; then
+        echo "  WARNING: No stats file found"
+        return
+    fi
+    
+    local nr_periods=$(grep "^nr_periods:" "$result_file" 2>/dev/null | cut -d: -f2 || echo "0")
+    local nr_throttled=$(grep "^nr_throttled:" "$result_file" 2>/dev/null | cut -d: -f2 || echo "0")
+    
+    if [ "$nr_periods" -gt 0 ]; then
+        local throttle_percent=$(echo "scale=1; ($nr_throttled / $nr_periods) * 100" | bc -l)
+        
+        echo "" | tee -a "$result_file"
+        echo "Summary:" | tee -a "$result_file"
+        echo "  CPU usage: ${actual_cpu}%" | tee -a "$result_file"
+        echo "  Throttle rate: ${throttle_percent}%" | tee -a "$result_file"
+        echo "  Periods: $nr_periods" | tee -a "$result_file"
+        echo "  Throttled: $nr_throttled" | tee -a "$result_file"
+    else
+        echo "" | tee -a "$result_file"
+        echo "Summary:" | tee -a "$result_file"
+        echo "  CPU usage: ${actual_cpu}%" | tee -a "$result_file"
+        echo "  WARNING: Could not calculate throttle stats" | tee -a "$result_file"
+    fi
+}
+
+# Function to run one test
+run_test() {
+    local name=$1
+    local cpus=$2
+    local hypothesis=$3
+    
+    echo "=== $name ==="
+    echo "Hypothesis: $hypothesis"
+    echo ""
+    
+    # Run container
+    if [ "$cpus" = "none" ]; then
+        docker run -d --name "$name" -v "$(pwd)/pure_cpu_workload:/workload" alpine /workload 50 50 ${TEST_DURATION} > /dev/null
+    else
+        docker run -d --name "$name" --cpus="$cpus" -v "$(pwd)/pure_cpu_workload:/workload" alpine /workload 50 50 ${TEST_DURATION} > /dev/null
+    fi
+    
+    # Wait for startup
+    sleep 2
+    
+    echo "Workload running..."
+    
+    # Find cgroup path WHILE container is running
+    CGROUP_PATH=$(find_cgroup_path "$name")
+    
+    if [ -z "$CGROUP_PATH" ]; then
+        echo "  WARNING: Could not find cgroup path for $name"
+        echo "  Skipping stats collection"
+    else
+        echo "  Found cgroup: $CGROUP_PATH"
+    fi
+    
+    # Sample CPU during execution
+    echo "Sampling CPU usage..."
+    ACTUAL_CPU=$(for i in $(seq 1 5); do
+        docker stats --no-stream --format "{{.CPUPerc}}" "$name" 2>/dev/null | sed 's/%//' || echo "0"
+        sleep 2
+    done | awk '{sum+=$1; count++} END {if(count>0) print sum/count; else print "0"}')
+    
+    echo "Observed average CPU usage: ${ACTUAL_CPU}%"
+    
+    # Read stats BEFORE container stops
+    if [ -n "$CGROUP_PATH" ]; then
+        echo "Reading cgroup stats..."
+        RESULT_FILE="$RESULT_DIR/${name}.txt"
+        echo "=== CPU Statistics ===" | tee "$RESULT_FILE"
+        if read_cpu_stats "$CGROUP_PATH" "$RESULT_FILE"; then
+            echo "  Stats saved to $RESULT_FILE"
+            # Analyze after reading
+            analyze_results "$RESULT_FILE" "$ACTUAL_CPU" "$name"
         fi
     fi
-fi
+    
+    # Now wait for completion
+    echo "Waiting for workload to complete..."
+    docker wait "$name" > /dev/null 2>&1 || true
+    
+    echo ""
+    docker rm -f "$name" > /dev/null 2>&1 || true
+    sleep 2
+}
 
-echo ""
+#############################################
+# Run tests
+#############################################
 
-docker rm -f throttle-aggressive > /dev/null
+# Test A: No limit
+run_test "throttle-baseline" "none" "Unlimited CPU → minimal throttling"
+
+# Test B: 50% limit
+run_test "throttle-moderate" "0.5" "50% limit on 50% workload → moderate throttling"
+
+# Test C: 10% limit
+run_test "throttle-aggressive" "0.1" "10% limit → high throttling"
+
+# Test D: 100% limit (control)
+run_test "throttle-control" "1.0" "100% limit → minimal throttling (control)"
 
 #############################################
 # Summary
@@ -257,20 +239,9 @@ docker rm -f throttle-aggressive > /dev/null
 echo ""
 echo "=== Summary ==="
 echo ""
-echo "Full results saved to: $RESULT_DIR/"
+echo "Full results: $RESULT_DIR/"
 echo ""
-echo "Key Findings:"
-echo "  - Test A (No limit): No throttling (baseline)"
-echo "  - Test B (50% limit): Moderate throttling"
-echo "  - Test C (10% limit): High throttling + scheduler overhead"
+echo "Result files:"
+ls -lh "$RESULT_DIR/"*.txt 2>/dev/null || echo "  (no .txt files created - check for errors above)"
 echo ""
-echo "Expected pattern:"
-echo "  As throttle rate increases (>80%), scheduler overhead becomes significant"
-echo "  At very high throttle rates, kernel spends 10-15% CPU just enforcing limits"
-echo ""
-echo "Production Guidance:"
-echo "  - CPU limits <50% throttle rate: Acceptable overhead"
-echo "  - CPU limits >80% throttle rate: Consider removing limits, use requests only"
-echo "  - For latency-sensitive workloads: Avoid CPU limits entirely"
-echo ""
-echo "Next: Review $RESULT_DIR/ and compare with expected_results.md"
+echo "Done."

@@ -36,7 +36,7 @@ case $OS in
         apt-get install -y linux-tools-generic linux-tools-common
         
         # Network benchmarking
-        apt-get install -y sockperf iperf3
+        apt-get install -y sockperf iperf3 jq
         
         # Container runtime (if not already installed)
         if ! command -v docker &> /dev/null; then

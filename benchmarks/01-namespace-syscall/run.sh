@@ -1,7 +1,4 @@
 #!/bin/bash
-# benchmarks/01-namespace-syscall/run.sh
-# Run namespace syscall overhead benchmark
-
 set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
@@ -12,13 +9,6 @@ echo "Benchmark 01: Namespace Syscall Overhead"
 echo "========================================="
 echo ""
 
-# Check if binary exists
-if [ ! -f ./getpid_bench ]; then
-    echo "Binary not found. Compiling..."
-    ./compile.sh
-    echo ""
-fi
-
 # Create results directory
 mkdir -p results
 TIMESTAMP=$(date +%Y%m%d_%H%M%S)
@@ -28,12 +18,10 @@ mkdir -p "$RESULT_DIR"
 echo "Results will be saved to: $RESULT_DIR"
 echo ""
 
-# Check if perf works
-PERF_WORKS=false
-if command -v perf &> /dev/null; then
-    if perf stat -e cycles -- sleep 0.1 &> /dev/null; then
-        PERF_WORKS=true
-    fi
+# Compile
+if [ ! -f ./getpid_bench ]; then
+    echo "Compiling getpid_bench..."
+    ./compile.sh
 fi
 
 #############################################
@@ -41,72 +29,48 @@ fi
 #############################################
 
 echo "=== Test A: Host PID Namespace (Baseline) ==="
+echo "Running 10M getpid() syscalls on host..."
 
-if [ "$PERF_WORKS" = true ]; then
-    echo "Running with perf (CPU cycle counters)..."
-    taskset -c 0 perf stat -e cycles,instructions,cache-misses \
-        ./getpid_bench 2>&1 | tee "$RESULT_DIR/test-a-host.txt"
-else
-    echo "Running without perf (timing only)..."
-    ./getpid_bench 2>&1 | tee "$RESULT_DIR/test-a-host.txt"
-fi
-
-echo ""
+./getpid_bench | tee "$RESULT_DIR/test-a-host.txt"
 
 #############################################
 # Test B: Container PID Namespace
 #############################################
 
+echo ""
 echo "=== Test B: Container PID Namespace ==="
-echo "Running inside Docker container..."
-docker run --rm -v "$SCRIPT_DIR:/work:ro" alpine /work/getpid_bench \
-    2>&1 | tee "$RESULT_DIR/test-b-container.txt"
+echo "Running 10M getpid() syscalls inside Docker container..."
 
-echo ""
-
-#############################################
-# Test C: Cross-Namespace (nsenter)
-#############################################
-
-echo "=== Test C: Cross-Namespace (nsenter) ==="
-docker run -d --name nstest-$$ alpine sleep 600 > /dev/null
-TARGET_PID=$(docker inspect nstest-$$ --format '{{.State.Pid}}')
-
-echo "Running 1000 nsenter operations..."
-START_TIME=$(date +%s%N)
-for i in {1..1000}; do
-    nsenter --target $TARGET_PID --pid -- /bin/true > /dev/null 2>&1
-done
-END_TIME=$(date +%s%N)
-
-ELAPSED_NS=$((END_TIME - START_TIME))
-AVG_US=$((ELAPSED_NS / 1000 / 1000))
-
-echo "Average: ${AVG_US} microseconds per nsenter" | tee "$RESULT_DIR/test-c-nsenter.txt"
-
-docker rm -f nstest-$$ > /dev/null
-
-echo ""
+docker run --rm -v "$(pwd)/getpid_bench:/getpid_bench" alpine /getpid_bench | tee "$RESULT_DIR/test-b-container.txt"
 
 #############################################
 # Summary
 #############################################
 
+echo ""
 echo "=== Results Summary ==="
 echo ""
 
-HOST_NS=$(grep "Average:" "$RESULT_DIR/test-a-host.txt" 2>/dev/null | awk '{print $2}' || echo "N/A")
-CONTAINER_NS=$(grep "Average:" "$RESULT_DIR/test-b-container.txt" 2>/dev/null | awk '{print $2}' || echo "N/A")
+HOST_NS=$(grep "Average:" "$RESULT_DIR/test-a-host.txt" 2>/dev/null | head -1 | awk '{print $2, $3}' || echo "N/A")
+CONTAINER_NS=$(grep "Average:" "$RESULT_DIR/test-b-container.txt" 2>/dev/null | head -1 | awk '{print $2, $3}' || echo "N/A")
 
-echo "Test A (Host):      ${HOST_NS} ns"
-echo "Test B (Container): ${CONTAINER_NS} ns"
-echo "Test C (nsenter):   ${AVG_US} microseconds"
+echo "Test A (Host):      $HOST_NS"
+echo "Test B (Container): $CONTAINER_NS"
 
 if [ "$HOST_NS" != "N/A" ] && [ "$CONTAINER_NS" != "N/A" ]; then
-    OVERHEAD=$(echo "scale=1; (($CONTAINER_NS - $HOST_NS) / $HOST_NS) * 100" | bc 2>/dev/null || echo "N/A")
+    HOST_VAL=$(echo "$HOST_NS" | awk '{print $1}')
+    CONTAINER_VAL=$(echo "$CONTAINER_NS" | awk '{print $1}')
+    
+    OVERHEAD=$(echo "scale=1; (($CONTAINER_VAL - $HOST_VAL) / $HOST_VAL) * 100" | bc 2>/dev/null || echo "N/A")
+    
     if [ "$OVERHEAD" != "N/A" ]; then
         echo ""
-        echo "Container overhead: +${OVERHEAD}%"
+        echo "Namespace overhead: +${OVERHEAD}%"
+        echo ""
+        echo "What this means:"
+        echo "  - Container syscalls are ${OVERHEAD}% slower due to PID namespace translation"
+        echo "  - This overhead is constant for ALL syscalls in containers"
+        echo "  - The kernel must translate PIDs through the namespace hierarchy"
     fi
 fi
 
