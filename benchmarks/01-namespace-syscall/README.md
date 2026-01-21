@@ -112,7 +112,7 @@ This is ONLY about PID namespace translation cost.
 ### Understanding the Overhead
 
 **Test A to Test B (Container overhead):**
-- The 25% overhead comes from PID translation
+- The 11% overhead comes from PID translation
 - Kernel must walk the namespace hierarchy for every syscall
 - This is the cost of process isolation
 

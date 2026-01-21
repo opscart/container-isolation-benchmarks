@@ -14,7 +14,7 @@ This repository contains reproducible benchmarks measuring the performance overh
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│  Benchmark 01: Namespace Syscall        +25% overhead       │
+│  Benchmark 01: Namespace Syscall        +11% overhead       │
 │  ├─ Host:       269 ns                  [Acceptable]        │
 │  ├─ Container:  298 ns                                      │
 ├─────────────────────────────────────────────────────────────┤
@@ -22,12 +22,12 @@ This repository contains reproducible benchmarks measuring the performance overh
 │  ├─ Unlimited:  0% throttle rate        [Good]              │
 │  ├─ 50% limit:  0.5% throttle rate      [Acceptable]        │
 │  ├─ 10% limit:  100% throttle rate      [Pathological]      │
-│  └─             8.1s wasted (27%)                            │
+│  └─             8.1s wasted (27%)                           │
 ├─────────────────────────────────────────────────────────────┤
 │  Benchmark 03: Network Latency          <1μs overhead       │
 │  ├─ Loopback:   18.4 μs                 [Breakthrough]      │
-│  ├─ veth:       18.9 μs                                      │
-│  └─ Overhead:   0.6 μs (3.1%)          [Problem solved]    │
+│  ├─ veth:       18.9 μs                                     │
+│  └─ Overhead:   0.6 μs (3.1%)          [Problem solved]     │
 └─────────────────────────────────────────────────────────────┘
 ```
 
@@ -77,13 +77,13 @@ though we did not test older kernels ourselves for direct comparison.**
 **Results (Kernel 6.14.0-1017-azure):**
 - Host process (baseline): **268.83 ns** (3.72 M/sec)
 - Container process: **298.31 ns** (3.35 M/sec)
-- **Overhead: +29.48 ns (+11.0%)**
+- **Overhead: +29.48 ns (+11%)**
 
-**Key Finding:** Container syscalls incur **25% overhead** due to PID namespace translation.
+**Key Finding:** Container syscalls incur **11% overhead** due to PID namespace translation.
 
 **Implication:** 
-- 25% acceptable for most workloads (security benefit justified)
-- Avoid frequent exec operations (debugging, monitoring) - 1,640x cost is severe
+- 11% acceptable for most workloads (security benefit justified)
+- Avoid frequent exec operations (kubectl exec, docker exec) as they require namespace crossing
 
 **[Detailed methodology](benchmarks/01-namespace-syscall/README.md)**
 
